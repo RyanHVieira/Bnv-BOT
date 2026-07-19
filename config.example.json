@@ -1,0 +1,23 @@
+{
+  "rcon": {
+    "host": "",
+    "port": 25575,
+    "password": "senha",
+    "enabled": false
+  },
+  "minecraft": {
+    "host": "",
+    "port": 25565
+  },
+  "bot": {
+    "prefix": "!"
+  },
+  "permissions": {
+    "logChannelId": "",
+    "adminRoleId": ""
+  },
+  "setup": {
+    "completed": false,
+    "rconEnabled": false
+  }
+}
