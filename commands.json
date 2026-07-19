@@ -1,0 +1,43 @@
+{
+  "commands": [
+    {
+      "name": "start",
+      "description": "Inicia o servidor",
+      "role": "admin"
+    },
+    {
+      "name": "stop",
+      "description": "Para o servidor",
+      "role": "admin"
+    },
+    {
+      "name": "restart",
+      "description": "Reinicia o servidor",
+      "role": "admin"
+    },{
+        "name": "status",
+        "description": "Verifica o status do servidor",
+        "role": "user"
+    },
+    {
+        "name": "list",
+        "description": "Lista os jogadores online",
+        "role": "user"
+    },
+    {
+        "name": "set-log-channel",
+        "description": "Define o chat de logs",
+        "role": "admin"
+    },
+    {
+        "name": "help",
+        "description": "Mostra a lista de comandos",
+        "role": "user"
+    },{
+        "name": "set-admin-role",
+        "description": "Define o cargo de administrador",
+        "role": "admin"
+    }
+
+  ]
+}
