@@ -1,7 +1,8 @@
 require("dotenv").config();
-
+const fs = require("fs");
 function getConfig() {return JSON.parse(fs.readFileSync("./config.json", "utf8"));}
 let config = getConfig();
+let setupRunning = false;
 
 function reloadConfig() {config = getConfig();}
 
@@ -9,20 +10,15 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const { exec } = require("child_process");
 const util = require("minecraft-server-util");
 const { Rcon } = require("rcon-client");
-const fs = require("fs");
 const data = require("./commands.json");
-const RCON_HOST = config.rcon.host;
-const RCON_PORT = config.rcon.port;
-const RCON_PASS = config.rcon.password;
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const ALLOWED_CHANNEL_ID = config.permissions.logChannelId;
-const ROLE_ID = config.permissions.adminRoleId;
-const PREFIX = config.bot.prefix;
 
 const client = new Client({intents: [GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildMembers]});
 
-async function runRcon(command) {
-    const rcon = await Rcon.connect({host: RCON_HOST,port: RCON_PORT,password: RCON_PASS});
+async function runRcon(command){
+    reloadConfig();
+    if(!config.rcon.enabled){throw new Error("RCON desativado");}
+    const rcon = await Rcon.connect({host: config.rcon.host,port: config.rcon.port,password: config.rcon.password});
     const res = await rcon.send(command);
     await rcon.end();
     return res;
@@ -39,8 +35,8 @@ client.on("ready", () => {console.log(`Bot online: ${client.user.tag}`);});
    |___|    |_______||_|  |__||_______||_______||_______||_______| */
 
 function hasRole(member) {
-    if (member.roles.cache.has(ROLE_ID)) {return true;}
-    return false;
+    reloadConfig();
+    return member.roles.cache.has(config.permissions.adminRoleId);
 }
 
 function help2(message) {
@@ -132,7 +128,8 @@ function restartServer(message){
 })}
 
 function listarPlayers(message) {
-    util.status("127.0.0.1", 25565).then((status) => {
+    reloadConfig();
+    util.status(config.minecraft.host,config.minecraft.port).then((status) => {
         let texto = `👥 ${status.players.online}/${status.players.max} jogadores\n\n`;
         if (status.players.sample && status.players.sample.length > 0) {
             for (let i = 0; i < status.players.sample.length; i++) {   
@@ -176,6 +173,86 @@ Disco: ${discoUsado} / ${discoTotal} (${discoUso})
 CPU: ${cpuMine}%
 RAM: ${ramMine} GB (${memMine}%)`);
 });});}
+//setup
+async function esperarResposta(message){
+    const filtro = m =>
+        m.author.id === message.author.id;
+    const resposta = await message.channel.awaitMessages({
+        filter: filtro,
+        max: 1,
+        time: 60000
+    });
+    return resposta.first().content.trim();
+}
+
+async function setup(message){
+    reloadConfig();
+    if(config.setup.completed){return message.reply("O setup já foi concluído.");}
+    setupRunning = true
+    await message.channel.send(
+`⚙️ Setup inicial
+
+Prefixo atual:
+\`${config.bot.prefix}\`
+
+Deseja manter esse prefixo?
+
+Digite:
+SIM
+ou
+NÃO`
+);
+    const manterPrefixo = await esperarResposta(message);
+    if(manterPrefixo.toLowerCase() !== "sim"){
+        await message.channel.send("Digite o novo prefixo:");
+        const novoPrefixo = await esperarResposta(message);
+        config.bot.prefix = novoPrefixo;
+    }
+    await message.channel.send("Agora mencione o cargo de administrador:");
+    const cargoMsg = await esperarResposta(message);
+    const cargo = cargoMsg.match(/\d+/);
+    if(!cargo){return message.reply("Cargo inválido.");}
+
+    config.permissions.adminRoleId = cargo[0];
+    config.setup.completed = true;
+    fs.writeFileSync("./config.json",JSON.stringify(config,null,2));
+    setupRunning = false;
+    message.channel.send(
+`✅ Setup concluído!
+
+Prefixo:
+${config.bot.prefix}
+
+Cargo admin configurado.
+`
+    );
+
+}
+
+async function setupRcon(message){
+    reloadConfig();
+    setupRunning = true;
+    await message.channel.send("Ativar sistema RCON?\nSIM ou NÃO");
+    const ativar = await esperarResposta(message);
+    if(ativar.toLowerCase() !== "sim"){
+        config.rcon.enabled = false;
+        fs.writeFileSync("./config.json",JSON.stringify(config,null,2));
+        return message.channel.send("RCON desativado.");
+    }
+    await message.channel.send("Digite o host RCON:");
+    config.rcon.host =
+    await esperarResposta(message);
+    await message.channel.send("Digite a porta RCON:");
+    config.rcon.port =
+    Number(await esperarResposta(message));
+    await message.channel.send("Digite a senha RCON:");
+    config.rcon.password =
+    await esperarResposta(message);
+    config.rcon.enabled=true;
+    fs.writeFileSync("./config.json",JSON.stringify(config,null,2));
+    setupRunning = false;
+    message.channel.send("✅ RCON configurado.");
+}
 
 /* ___      ___   _______  _______  _______  __    _  _______  ______    _______ 
   |   |    |   | |       ||       ||       ||  |  | ||       ||    _ |  |       |  Ascii feito com https://patorjk.com/
@@ -184,39 +261,47 @@ RAM: ${ramMine} GB (${memMine}%)`);
   |   |___ |   | |_____  |  |   |  |    ___||  _    ||    ___||    __  ||_____  |
   |       ||   |  _____| |  |   |  |   |___ | | |   ||   |___ |   |  | | _____| |
   |_______||___| |_______|  |___|  |_______||_|  |__||_______||___|  |_||_______| */
-
 // executa direto no minecraft
 client.on("messageCreate", async (message) => {
     try {
-        if (message.author.bot || message.channel.id !== ALLOWED_CHANNEL_ID || message.content.startsWith(PREFIX)|| message.content.startsWith("."))return;
-        if (!hasRole(message.member)) return message.reply("Você não tem permissão para executar comandos.");
+        reloadConfig();
+        if (message.author.bot ||message.channel.id !== config.permissions.logChannelId ||
+            message.content.startsWith(config.bot.prefix) ||message.content.startsWith(".")) return;
+        if (!hasRole(message.member)) {return message.reply("Você não tem permissão para executar comandos.");}
         const command = message.content.trim();
         if (!command) return;
-
         console.log(`Executando no Minecraft: ${command}`);
         const result = await runRcon(command);
-        
-        if (!result) {message.react("👍");} //não tem feedback
-        else {message.reply(`\n\`\`\`${result}\`\`\``);} //tem feedback
-
-    } catch (err) {console.error(err);message.reply("Erro ao executar comando");}
+        if (!result) {message.react("👍");}else {message.reply(`\n\`\`\`${result}\`\`\``);}
+    }catch (erro){
+        console.error(erro);
+        message.reply("Erro ao executar comando");
+    }
 });
 
 // comandos prefixados
 client.on("messageCreate", async (message) => {
+    if (message.author.bot) return;
+    reloadConfig();
+    if(!config.setup.completed &&!setupRunning &&!message.content.startsWith(config.bot.prefix + "setup") &&
+    !message.content.startsWith(config.bot.prefix + "setupRcon")){
+    return message.reply("⚙️ Bot ainda não configurado. Use !setup");}
+    if(!message.content.startsWith(config.bot.prefix)) return;
+
     const member = message.member;
-    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const args = message.content.slice(config.bot.prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
-    //comandos
-    if(command === "mcstart" && hasRole(member)) {startServer(message);}
-    else if(command === "mcstop" && hasRole(member)) {stopServer(message);}
-    else if(command === "mcrestart" && hasRole(member)) {restartServer(message);}
-    else if(command === "status") {serverStatus(message);}
-    else if(command === "mclist") {listarPlayers(message);}
-    else if(command === "help") {message.channel.send(help());}
-    else if(command === "help2"&& hasRole(member)) {message.channel.send(help2(message));}
-    else if((command === "set-admin-role") && hasRole(member)) {setAdminRole(message);}
-    else if((command === "set-log-channel") && hasRole(member)) {setLogChannel(message);}
+    if(command === "setup"){setup(message)}
+    else if(command === "setuprcon"){setupRcon(message);}
+    else if(command === "mcstart" && hasRole(member)){startServer(message);}
+    else if(command === "mcstop" && hasRole(member)){stopServer(message);}
+    else if(command === "mcrestart" && hasRole(member)){restartServer(message);}
+    else if(command === "status"){serverStatus(message);}
+    else if(command === "mclist"){listarPlayers(message);}
+    else if(command === "help"){message.channel.send(help());}
+    else if(command === "help2" && hasRole(member)){help2(message);}
+    else if(command === "set-admin-role" && hasRole(member)){setAdminRole(message);}
+    else if(command === "set-log-channel" && hasRole(member)){setLogChannel(message);}
 });
-client.login(TOKEN);
+
+client.login(DISCORD_TOKEN);
