@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 function getConfig() {return JSON.parse(fs.readFileSync("./config.json", "utf8"));}
 let config = getConfig();
 
@@ -12,7 +14,7 @@ const data = require("./commands.json");
 const RCON_HOST = config.rcon.host;
 const RCON_PORT = config.rcon.port;
 const RCON_PASS = config.rcon.password;
-const TOKEN = config.bot.token;
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ALLOWED_CHANNEL_ID = config.permissions.logChannelId;
 const ROLE_ID = config.permissions.adminRoleId;
 const PREFIX = config.bot.prefix;
